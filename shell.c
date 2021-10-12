@@ -22,24 +22,22 @@ void processLine(char* line, int len){
     int commandIndex = strchr(line,' ')-line;
     strncpy(command,line,commandIndex);
 
-    int lessThanIndex = strchr(line,'<')-line; 
-    int greaterThanIndex = strchr(line,'>')-line; 
+    int lessThanIndex = strchr(line,'<') == NULL ? len+1: strchr(line,'<')-line; 
+    int greaterThanIndex = strchr(line,'>') == NULL ? len+1: strchr(line,'>')-line;  
     if(greaterThanIndex > 0 && line[greaterThanIndex-1] == '2') greaterThanIndex--; 
 
-    int ioIndex = -1; 
+    fprintf(stderr,"lessThanIndex: %d\n", lessThanIndex);
+    fprintf(stderr,"greaterThanIndex: %d\n", greaterThanIndex); 
 
-    if(greaterThanIndex >= 0 && lessThanIndex >= 0)
-        ioIndex = greaterThanIndex < lessThanIndex ? greaterThanIndex: lessThanIndex; 
-    else if (greaterThanIndex < 0)
-        ioIndex = lessThanIndex; 
-    else if (lessThanIndex < 0)
-        ioIndex = greaterThanIndex; 
+    int ioIndex = greaterThanIndex < lessThanIndex ? greaterThanIndex: lessThanIndex;
+
+    fprintf(stderr,"ioIndex: %d\n", ioIndex); 
     
-    if(ioIndex != -1) strncpy(arguments,line+commandIndex+1,ioIndex-(commandIndex+1));
+    if(ioIndex != len+1) strncpy(arguments,line+commandIndex+1,ioIndex-(commandIndex+1));
     else strncpy(arguments,line+commandIndex+1,len-(commandIndex+1));
-    // if(ioIndex != -1) strncpy(ioRedirect,line+ioIndex,len-ioIndex); 
+    if(ioIndex != len+1) strncpy(ioRedirect,line+ioIndex,len-ioIndex); 
 
-    // fprintf(stderr,"full command: %s\ncommand:%s\nargs:%s\nioRedirect:%s\n",line,command,arguments,ioRedirect); 
+    fprintf(stderr,"full command: %s\ncommand:%s\nargs:%s\nioRedirect:%s\n",line,command,arguments,ioRedirect); 
     
 
 }
