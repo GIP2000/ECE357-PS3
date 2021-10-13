@@ -5,6 +5,25 @@
 #include <unistd.h>
 #include <linux/limits.h>
 
+void processIORedirect(char * ioRedirect){
+    char * token = strtok(ioRedirect," ");
+    do{
+        switch(ioRedirect[0]){
+            case '2': break; 
+            case '>':break;
+            case '<':break;
+            default: fprintf(stderr,"unknown error"); exit(-1);  
+        }
+    }while((token = strtok(NULL," ")) != NULL); 
+
+}
+void execute(char * command, char * arguments){
+    char * token = strtok(arguments," ");
+    do{
+
+    }while((token = strtok(NULL," ")) != NULL); 
+}
+
 void pwd(){
     int size = PATH_MAX == -1 || PATH_MAX > 10240 ? 10240:PATH_MAX;
     char * buf; 
@@ -17,37 +36,38 @@ void pwd(){
     if(buf != NULL)printf("%s\n",buf); 
 
 }
-
 void cd(char * directory, int len){
     char * dir;
-    if(directory == NULL) dir = "~/"; 
+    if(directory == NULL || strlen(directory) == 0) dir = getenv("HOME");
     else dir = strtok(directory, " ");
-    fprintf(stderr,"dir: %s\n",dir);
     if(chdir(dir) != 0) perror("Error Changing Directory: "); 
-    else pwd(); 
 }
-
 void exitShell(char* code){
     // change to parse for the code; 
     exit(atoi(code));
 }
 void external(char* command, char* arguments, char* ioRedirect){
-
+    int pid; 
+    switch((pid = fork())){
+        case -1: perror("Error forking: "); exit(-1);
+        case 0: 
+            processIORedirect(ioRedirect);
+            execute(command,arguments);
+            break;
+        default:
+            //wait; 
+    }
 }
 void processLine(char* line, int len){
     if(line[0] == '#') return;
-    char * command;
-    char * arguments; 
-    char * ioRedirect; 
+    char* command;
+    char* arguments; 
+    char* ioRedirect; 
 
     int commandIndex = strchr(line,' ') == NULL ? len-1:strchr(line,' ')-line ;
-    fprintf(stderr,"commandIndex:%d\nLetters:\n",commandIndex);
-    command = malloc(commandIndex); 
+    command = (char *)malloc(commandIndex+1); 
     strncpy(command,line,commandIndex);
-    int i;
-    for(i = 0;i<strlen(command); i++){
-        fprintf(stderr,"%d:%d\n",i,(int)command[i]); 
-    }
+    command[commandIndex] = '\0';
 
     int lessThanIndex = strchr(line,'<') == NULL ? len+1: strchr(line,'<')-line; 
     int greaterThanIndex = strchr(line,'>') == NULL ? len+1: strchr(line,'>')-line;  
@@ -55,16 +75,17 @@ void processLine(char* line, int len){
     int ioIndex = greaterThanIndex < lessThanIndex ? greaterThanIndex: lessThanIndex;
     
     if(ioIndex != len+1) {
-        arguments = malloc(ioIndex-(commandIndex+1)); 
+        arguments = malloc(ioIndex-(commandIndex+1)+1); 
         strncpy(arguments,line+commandIndex+1,ioIndex-(commandIndex+1));
-        ioRedirect = malloc(len-ioIndex);
+        arguments[ioIndex-(commandIndex+1)] = '\0';
+        ioRedirect = (char *)malloc(len-ioIndex);
         strcpy(ioRedirect,line+ioIndex);
+        ioRedirect[len-ioIndex-1] = '\0';
     } else if(len-(commandIndex+1) != -1){
-        arguments = malloc(len-(commandIndex+1)); 
+        arguments = (char *)malloc(len-(commandIndex+1)); 
         strcpy(arguments,line+commandIndex+1);
+        arguments[len-(commandIndex+1)-1] = '\0';
     }
-
-    fprintf(stderr,"full command:%s:%d\ncommand:%s:%d\nargs:%s:%d\n",line,strlen(line),command,strlen(command),arguments,strlen(arguments)); 
 
     if(strcmp(command,"cd") == 0) cd(arguments,len-(commandIndex+1));
     else if(strcmp(command,"pwd") == 0) pwd(); 
