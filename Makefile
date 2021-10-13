@@ -4,5 +4,5 @@ PHONY: clean
 shell: shell.c
 	gcc -o shell shell.c
 
-clean: find
+clean: shell
 	rm -f shell

@@ -1,27 +1,78 @@
 #include <stdlib.h> 
 #include <stdio.h>
+#include <stdbool.h> 
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
 #include <linux/limits.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/types.h>
 
 void processIORedirect(char * ioRedirect){
+    fprintf(stderr,"ioRedirect: %s; len:%d; firstchar:%d\n",ioRedirect,strlen(ioRedirect),(int)ioRedirect[0]);  
     char * token = strtok(ioRedirect," ");
     do{
-        switch(ioRedirect[0]){
-            case '2': break; 
-            case '>':break;
-            case '<':break;
+        int source = -1; 
+        char * desName; 
+        int flag = 0; 
+        int mode = 0666; 
+        switch(token[0]){
+            case '2': 
+                // redirect stderr
+                source = STDERR_FILENO; 
+                strcpy(token,token+1); // i didn't break so I can continue and just use the code from the next section cause its the same 
+                // flag = token[2] == '>' ? O_APPEND|O_CREAT|O_WRONLY : O_TRUNC|O_CREAT|O_WRONLY;
+                // int offset = token[2] == '>' ?3:2; 
+                // desName = malloc(strlne(token) - offset+1);
+                // strcpy(desName,token+offset);
+                // desName[strlne(token) - offset] = '\0'; 
+                // break; 
+            case '>':
+                //redirect stdout
+                source = source == -1 ? STDOUT_FILENO: source; 
+                flag = token[1] == '>' ? O_APPEND|O_CREAT|O_WRONLY : O_TRUNC|O_CREAT|O_WRONLY;
+                int offset = token[1] == '>' ?2:1; 
+                desName = malloc(strlen(token) - offset+1);
+                strcpy(desName,token+offset);
+                desName[strlen(token) - offset] = '\0';
+                break;
+            case '<':
+                // redirect stdin
+                source = STDIN_FILENO; 
+                desName = malloc(strlen(token)); 
+                strcpy(desName,token+1);
+                flag = O_RDONLY; 
+                desName[strlen(token)] = '\0'; 
+                break;
             default: fprintf(stderr,"unknown error"); exit(-1);  
         }
+        int fd = open(desName,flag,mode); 
+        if(fd == -1){
+            fprintf(stderr,"Error opening file name \"%s\":%s\n",desName,strerror(errno)); 
+            exit(-1); 
+        }
+        dup2(fd,source); 
+        free(desName); 
     }while((token = strtok(NULL," ")) != NULL); 
 
 }
 void execute(char * command, char * arguments){
+    int currentSize = sizeof(char*)*(strlen(command)+1); 
+    char ** argv = (char**)malloc(currentSize); 
+    argv[0] = command;
+    int i = 1;   
     char * token = strtok(arguments," ");
     do{
-
-    }while((token = strtok(NULL," ")) != NULL); 
+        currentSize+=sizeof(char*)*(strlen(token)) ;
+        argv = (char**)realloc(argv,currentSize);
+        argv[i++] = token; 
+    }while((token = strtok(NULL," ")) != NULL);
+    argv[i] = NULL;
+    execvp(command,argv); 
+    perror("execvp"); 
 }
 
 void pwd(){
@@ -46,16 +97,30 @@ void exitShell(char* code){
     // change to parse for the code; 
     exit(atoi(code));
 }
-void external(char* command, char* arguments, char* ioRedirect){
+void external(char* command, char* arguments, char* ioRedirect, bool hasRedirect){
     int pid; 
     switch((pid = fork())){
         case -1: perror("Error forking: "); exit(-1);
-        case 0: 
-            processIORedirect(ioRedirect);
+        case 0: {// child
+            if(hasRedirect) processIORedirect(ioRedirect);
             execute(command,arguments);
             break;
-        default:
-            //wait; 
+        }
+        default: {// parent
+            int cpid;
+            struct rusage ru;
+            int status;
+            if((cpid == wait3(&status,0,&ru)) == -1){
+                perror("Error waiting for child: ");
+                exit(-1);
+            } else {
+                printf("Child process %d consumed%ld.%.6d seconds of user time \n",
+                pid,
+                ru.ru_utime.tv_sec,
+                ru.ru_utime.tv_usec);
+            }
+        }
+
     }
 }
 void processLine(char* line, int len){
@@ -90,7 +155,7 @@ void processLine(char* line, int len){
     if(strcmp(command,"cd") == 0) cd(arguments,len-(commandIndex+1));
     else if(strcmp(command,"pwd") == 0) pwd(); 
     else if(strcmp(command,"exit") == 0) exitShell(arguments); 
-    else external(command,arguments,ioRedirect); 
+    else external(command,arguments,ioRedirect,ioIndex != len+1); 
 
     free(command);     
     if(ioIndex != len+1) {free(ioRedirect); free(arguments);}
