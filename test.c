@@ -4,12 +4,19 @@
 
 //print the first argument to stderr if there is no argument print Hello World
 int main(int argc, char *argv[]){
+    
     if(argc == 1)
         fprintf(stderr, "Hello World\n");
     else
         fprintf(stderr, "%s\n", argv[1]);
     if(argc == 3)
         printf("%s\n", argv[2]);
+    if(argc == 4){
+        char str[100];
+        scanf("%s",str); 
+        fprintf(stderr, "string: %s\n",str); 
+    }
+        
     return 0;
 }
 

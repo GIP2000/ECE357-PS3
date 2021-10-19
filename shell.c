@@ -9,58 +9,64 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/resource.h>
-#include <sys/types.h>
-#include <time.h> 
 
+
+// performes the IO redirection using the dup2 sys call 
 void processIORedirect(char * ioRedirect){
     char * token = strtok(ioRedirect," ");
     do{
         int source = -1; 
         char * desName; 
         int flag = 0; 
-        int mode = 0666; 
+        const int mode = 0666; 
         switch(token[0]){
             case '2': 
                 // redirect stderr
                 source = STDERR_FILENO; 
                 strcpy(token,token+1); // fall through
             case '>':
-                //redirect stdout
+                //redirect stdout or stderr if fall through
                 source = source == -1 ? STDOUT_FILENO: source; 
                 flag = token[1] == '>' ? O_APPEND|O_CREAT|O_WRONLY : O_TRUNC|O_CREAT|O_WRONLY;
                 int offset = token[1] == '>' ?2:1; 
-                desName = malloc(strlen(token) - offset+1);
+                desName = (char*)malloc(sizeof(char)*(strlen(token) - offset+1));
                 strcpy(desName,token+offset);
                 desName[strlen(token) - offset] = '\0';
                 break;
             case '<':
                 // redirect stdin
                 source = STDIN_FILENO; 
-                desName = malloc(strlen(token)); 
+                desName = (char*)malloc(sizeof(char)*(strlen(token))); 
                 strcpy(desName,token+1);
                 flag = O_RDONLY; 
                 desName[strlen(token)] = '\0'; 
                 break;
-            default: fprintf(stderr,"unknown error"); exit(-1);  
+            default: fprintf(stderr,"Unknown symbol when performing IO Redirection\n"); exit(-1);  
         }
         int fd = open(desName,flag,mode); 
         if(fd == -1){
             fprintf(stderr,"Error opening file name \"%s\" when redirecting IO. Error:%s\n",desName,strerror(errno)); 
-            exit(1); 
+            exit(errno); 
         }
-        dup2(fd,source); 
+        if(dup2(fd,source) == -1){
+            fprintf(stderr,"Unknown symbol when performing IO Redirection\n"); 
+            exit(errno); 
+        };
+        close(fd);  
         free(desName); 
     }while((token = strtok(NULL," ")) != NULL); 
 
 }
+
+// parses all the arguments and executes the program via the execvp sys call 
 void execute(char * command, char * arguments){
-    int currentSize = sizeof(char*)*(strlen(command)+1); 
+    size_t currentSize = sizeof(char)*(strlen(command)+1); 
     char ** argv = (char**)malloc(currentSize); 
     argv[0] = command;
     int i = 1;   
     char * token = strtok(arguments," ");
     while(token != NULL){
-        currentSize+=sizeof(char*)*(strlen(token)) ;
+        currentSize+=sizeof(char)*(strlen(token)) ;
         argv = (char**)realloc(argv,currentSize);
         argv[i++] = token; 
         token = strtok(NULL," "); 
@@ -70,6 +76,9 @@ void execute(char * command, char * arguments){
     perror("execvp");
     exit(127);  
 }
+
+
+// performes the pwd command internally
 void pwd(){
     int size = PATH_MAX == -1 || PATH_MAX > 10240 ? 10240:PATH_MAX;
     char * buf; 
@@ -82,41 +91,56 @@ void pwd(){
     if(buf != NULL)printf("%s\n",buf); 
 
 }
+
+//performes the cd command internally 
 void cd(char * directory, int len){
     char * dir;
     if(directory == NULL || strlen(directory) == 0) dir = getenv("HOME");
     else dir = strtok(directory, " ");
     if(chdir(dir) != 0) perror("Error Changing Directory: "); 
 }
+
+// runs the exit command internally
 void exitShell(char* arguments){
     char * code = strtok(arguments," ");
     code = code == NULL ? arguments:code; 
-    if(isdigit(code[0]) == 0 && !(isdigit(code[0]) == 0 && code[0] == '-' && strlen(code) > 1 && isdigit(code[1]) != 0))
-        fprintf(stderr, "Couldn't exit error code not an integer\n"); 
-    else exit(atoi(code));
+
+    //checks if the string is a digit
+    int i; 
+    for(i = 1; i<strlen(code); i++)
+        if(isdigit(code[i]) == 0 || (i == 0 && code[i] == '-')) {
+        fprintf(stderr, "Couldn't exit error code not an integer\n");
+        return;
+    } 
+    exit(atoi(code));
 }
 
-// runs an external command
+// runs an external command by forking the process and executing as well as waiting (in the parent) with the wait3 sys call 
 void external(char* command, char* arguments, char* ioRedirect, bool hasRedirect){
     int pid; 
-    clock_t start = clock(); 
     switch((pid = fork())){
-        case -1: perror("Error forking: "); exit(-1);
+        case -1: perror("Error forking: "); exit(errno);
         case 0: {// child
             if(hasRedirect) processIORedirect(ioRedirect);
             execute(command,arguments);
             break;
         }
         default: {// parent
+            struct timeval stop,start; 
+            gettimeofday(&start,NULL); 
             int cpid;
             struct rusage ru;
             int status;
             if((cpid == wait3(&status,0,&ru)) == -1){
                 perror("Error waiting for child: ");
-                exit(-1);
-            } 
-            clock_t total = (double)(clock() - start) / CLOCKS_PER_SEC; 
+                exit(errno);
+            }
 
+            // calculates the real time using the gettimeofday sys call 
+            gettimeofday(&stop,NULL); 
+            suseconds_t real_u = 1000000 * (stop.tv_sec - start.tv_sec) + stop.tv_usec - start.tv_usec; 
+            time_t real_s = real_u / 1000000; 
+            real_u %= 1000000; 
             if(status != 0 ){
                 if (WIFSIGNALED(status))
                     printf("Child process %d exited with signal %d\n", pid,WTERMSIG(status));
@@ -124,8 +148,9 @@ void external(char* command, char* arguments, char* ioRedirect, bool hasRedirect
                     printf("Child process %d exited with return value %d\n", pid, WEXITSTATUS(status));
             } else 
                 printf("Child process %d exited normally\n",pid); 
-            printf("Real:%fs User:%ld.%.6ds Sys:%ld.%.6ds\n",
-            total,
+            printf("Real:%ld.%.6ds User:%ld.%.6ds Sys:%ld.%.6ds\n",
+            real_s,
+            real_u,
             ru.ru_utime.tv_sec,
             ru.ru_utime.tv_usec,
             ru.ru_stime.tv_sec,
@@ -136,7 +161,7 @@ void external(char* command, char* arguments, char* ioRedirect, bool hasRedirect
     }
 }
 
-// processes an input line 
+// processes an input line and parses the different types of arguments into seperate strings 
 void processLine(char* line, int len){
     if(line[0] == '#') return;
     char* command;
@@ -152,7 +177,7 @@ void processLine(char* line, int len){
     // find the place where the args stop and the the io redirect starts
     int lessThanIndex = strchr(line,'<') == NULL ? len+1: strchr(line,'<')-line; 
     int greaterThanIndex = strchr(line,'>') == NULL ? len+1: strchr(line,'>')-line;  
-    if(greaterThanIndex > 0 && line[greaterThanIndex-1] == '2') greaterThanIndex--; 
+    if(greaterThanIndex < len && line[greaterThanIndex-1] == '2') greaterThanIndex--; 
     int ioIndex = greaterThanIndex < lessThanIndex ? greaterThanIndex: lessThanIndex;
     
     //seperates the args and the io redirect (if present )
@@ -180,7 +205,7 @@ void processLine(char* line, int len){
     else if(len-(commandIndex+1) != -1) free(arguments); 
 }
 
-// processes the input file
+// reads the input file line by line 
 void parseShell(FILE* fp){
     char * line = NULL; 
     size_t len = 0; 
@@ -191,5 +216,9 @@ void parseShell(FILE* fp){
 
 int main(int argc, char* argv[]){
     FILE* fp = argc == 1? stdin : fopen(argv[1],"r");
+    if(fp == NULL) {
+        perror("Error opening script file: "); 
+        exit(errno); 
+    }
     parseShell(fp); 
 }
