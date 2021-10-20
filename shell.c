@@ -118,6 +118,8 @@ void exitShell(char* arguments){
 // runs an external command by forking the process and executing as well as waiting (in the parent) with the wait3 sys call 
 void external(char* command, char* arguments, char* ioRedirect, bool hasRedirect){
     int pid; 
+    struct timeval stop,start; 
+    gettimeofday(&start,NULL); 
     switch((pid = fork())){
         case -1: perror("Error forking: "); exit(errno);
         case 0: {// child
@@ -126,8 +128,6 @@ void external(char* command, char* arguments, char* ioRedirect, bool hasRedirect
             break;
         }
         default: {// parent
-            struct timeval stop,start; 
-            gettimeofday(&start,NULL); 
             int cpid;
             struct rusage ru;
             int status;
