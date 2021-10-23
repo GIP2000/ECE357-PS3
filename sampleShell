@@ -6,7 +6,6 @@ ls >out.txt
 ls -la >>out.txt
 #this is another comment 
 mv ./out.txt ./ECE357-PS3/out.txt
-exit sup
 exit 0
 #this should never print
 pwd

@@ -10,6 +10,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 
+int prevExitCode = 0; 
 
 // performes the IO redirection using the dup2 sys call 
 void processIORedirect(char * ioRedirect){
@@ -62,12 +63,19 @@ void processIORedirect(char * ioRedirect){
 void execute(char * command, char * arguments){
     size_t currentSize = sizeof(char)*(strlen(command)+1); 
     char ** argv = (char**)malloc(currentSize); 
+    if(argv == NULL) {
+        perror("Error Allocating Memorey: ");
+        exit(errno);
+    }
     argv[0] = command;
     int i = 1;   
     char * token = strtok(arguments," ");
     while(token != NULL){
         currentSize+=sizeof(char)*(strlen(token)) ;
-        argv = (char**)realloc(argv,currentSize);
+        if((argv = (char**)realloc(argv,currentSize)) == NULL){
+            perror("Error Allocating Memorey: ");
+            exit(errno);
+        }
         argv[i++] = token; 
         token = strtok(NULL," "); 
     }
@@ -86,7 +94,7 @@ void pwd(){
     for(buf = ptr = NULL; ptr == NULL; size*=2){
         if((buf = realloc(buf,size)) == NULL){perror("Error allocating Mem: ");break;} 
         ptr = getcwd(buf,size); 
-        if(ptr == NULL && errno != ERANGE) {perror("Error getting Directory: ");break;} 
+        if(ptr == NULL && errno != ERANGE) {prevExitCode = errno;perror("Error getting Directory: ");break;} 
     }
     if(buf != NULL)printf("%s\n",buf); 
 
@@ -97,13 +105,18 @@ void cd(char * directory, int len){
     char * dir;
     if(directory == NULL || strlen(directory) == 0) dir = getenv("HOME");
     else dir = strtok(directory, " ");
-    if(chdir(dir) != 0) perror("Error Changing Directory: "); 
+    if(chdir(dir) != 0) {
+        perror("Error Changing Directory: "); 
+        prevExitCode = errno;
+    } 
 }
 
 // runs the exit command internally
 void exitShell(char* arguments){
     char * code = strtok(arguments," ");
     code = code == NULL ? arguments:code; 
+
+    if(strlen(code) <= 0) exit(prevExitCode); 
 
     //checks if the string is a digit
     int i; 
@@ -142,12 +155,16 @@ void external(char* command, char* arguments, char* ioRedirect, bool hasRedirect
             time_t real_s = real_u / 1000000; 
             real_u %= 1000000; 
             if(status != 0 ){
-                if (WIFSIGNALED(status))
-                    printf("Child process %d exited with signal %d\n", pid,WTERMSIG(status));
-                else 
-                    printf("Child process %d exited with return value %d\n", pid, WEXITSTATUS(status));
-            } else 
+                if (WIFSIGNALED(status)){
+                    prevExitCode = WTERMSIG(status);
+                    printf("Child process %d exited with signal %d\n", pid,WTERMSIG(status));}
+                else {
+                    prevExitCode = WEXITSTATUS(status);
+                    printf("Child process %d exited with return value %d\n", pid, WEXITSTATUS(status));}
+            } else {
+                prevExitCode = 0;
                 printf("Child process %d exited normally\n",pid); 
+            }
             printf("Real:%ld.%.6ds User:%ld.%.6ds Sys:%ld.%.6ds\n",
             real_s,
             real_u,
@@ -221,4 +238,5 @@ int main(int argc, char* argv[]){
         exit(errno); 
     }
     parseShell(fp); 
+    return prevExitCode;
 }
