@@ -180,7 +180,7 @@ void external(char* command, char* arguments, char* ioRedirect, bool hasRedirect
 
 // processes an input line and parses the different types of arguments into seperate strings 
 void processLine(char* line, int len){
-    if(line[0] == '#') return;
+    if(line[0] == '#' || len == 1) return;
     char* command;
     char* arguments; 
     char* ioRedirect; 
@@ -227,8 +227,9 @@ void parseShell(FILE* fp){
     char * line = NULL; 
     size_t len = 0; 
     size_t read; 
-    while((read = getline(&line,&len,fp)) != -1)
+    while((read = getline(&line,&len,fp)) != -1){
         processLine(line,read); 
+    }
 }
 
 int main(int argc, char* argv[]){
